@@ -1,0 +1,3 @@
+[submodule "kaitaiStructCompile.tests.ksys"]
+	path = tests/ksys
+	url = https://gitlab.com/kaitaiStructCompile.py/kaitaiStructCompile.tests.ksys

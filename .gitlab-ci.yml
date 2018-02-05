@@ -1,0 +1,67 @@
+image: registry.gitlab.com/kaitaistructcompile.py/kaitai_struct_python_docker:latest
+
+stages:
+  - dependencies
+  - build
+  - test
+  - tooling
+
+build:
+  tags:
+    - shared
+  stage: build
+  variables:
+    GIT_DEPTH: "1"
+    GIT_SUBMODULE_STRATEGY: recursive
+    PYTHONUSERBASE: "${CI_PROJECT_DIR}/python_user_packages"
+
+  before_script:
+    - export PATH="$PATH:$PYTHONUSERBASE/bin" # don't move into `variables`
+    - git clone --depth=1 https://gitlab.com/kaitaiStructCompile.py/kaitaiStructCompile.tests.ksys ./tests/ksys
+
+  cache:
+    paths:
+      - $PYTHONUSERBASE
+      - tests/kaitai_struct_formats
+
+  script:
+    - python3 setup.py bdist_wheel
+    - pip3 install --upgrade --pre ./dist/*.whl
+    - mkdir ./wheels
+    - mv ./dist/*.whl ./wheels/kaitaiStructCompile.importer-0.CI-py3-none-any.whl
+    - cd ./tests # in order to isolate from kaitaiStructCompile dir in current dir, which doesn't contain backends, so interferes with them.
+    - coverage run --source=kaitaiStructCompile -m pytest --junitxml=./rspec.xml ./test.py
+    - coverage report -m
+    - coveralls || true;
+    - codecov || true;
+
+  coverage: "/^TOTAL(?:\\s*\\d+){4}\\s(\\d+%).+/"
+
+  artifacts:
+    paths:
+      - wheels
+      - tests/output
+    reports:
+      junit: tests/rspec.xml
+
+
+checks:
+  stage: tooling
+  tags:
+    - shared
+  image: docker:latest
+  variables:
+    DOCKER_DRIVER: overlay2
+  allow_failure: true
+  services:
+    - docker:dind
+  script:
+    - docker run --env SAST_CONFIDENCE_LEVEL=5 --volume "$PWD:/code" --volume /var/run/docker.sock:/var/run/docker.sock "registry.gitlab.com/gitlab-org/security-products/sast:latest" /app/bin/run /code
+    #- docker run --env SOURCE_CODE="$PWD" --env CODECLIMATE_VERSION="latest" --volume "$PWD":/code --volume /var/run/docker.sock:/var/run/docker.sock "registry.gitlab.com/gitlab-org/security-products/codequality:latest" /code
+    #- docker run --env DEP_SCAN_DISABLE_REMOTE_CHECKS="${DEP_SCAN_DISABLE_REMOTE_CHECKS:-false}" --volume "$PWD:/code" --volume /var/run/docker.sock:/var/run/docker.sock "registry.gitlab.com/gitlab-org/security-products/dependency-scanning:latest" /code
+
+  artifacts:
+    reports:
+      #codequality: gl-code-quality-report.json
+      sast: gl-sast-report.json
+      #dependency_scanning: gl-dependency-scanning-report.json 
